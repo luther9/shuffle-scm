@@ -1,0 +1,66 @@
+#!/usr/bin/guile
+!#
+
+;; A card is represented by a pair. The first element is its id. The second is
+;; its position in the final, shuffled deck.
+
+;; Returns the list lst with item k removed.
+(define (remove-k lst k)
+  (if (<= k 0)
+      (cdr lst)
+      (cons (car lst) (remove-k (cdr lst) (1- k)))))
+
+;; Returns the list lst with a random element moved to the head.
+(define (pop-random lst random-state)
+  (let ((i (random (length lst) random-state)))
+    (cons (list-ref lst i) (remove-k lst i))))
+
+;; Inserts an item into the list in ascending order.
+(define (insert lst x)
+  (if (or (null? lst) (<= x (car lst)))
+      (cons x lst)
+      (cons (car lst) (insert (cdr lst) x))))
+
+;; Returns a sorted list of random positions along with the remaining positions.
+(define (get-positions n positions result random-state)
+  (if (<= n 0)
+      (cons result positions)
+      (let ((new-pop (pop-random positions random-state)))
+	(get-positions (1- n) (cdr new-pop) (insert result (car new-pop))
+		       random-state))))
+
+;; Make a list of cards with the same id and attach tail to the end.
+(define (make-same-clump id positions tail)
+  (if (null? positions)
+      tail
+      (cons (cons id (car positions))
+	    (make-same-clump id (cdr positions) tail))))
+
+(define (make-clumps same-clumps id positions random-state)
+  (if (null? same-clumps)
+      '()
+      (let ((position-results
+	     (get-positions (car same-clumps) positions '() random-state)))
+	(make-same-clump id (car position-results)
+			 (make-clumps (cdr same-clumps)
+				      (1+ id) (cdr position-results)
+				      random-state)))))
+
+;; Returns a list of cards mapped to their future position.
+;; unique-cards: The number of unique cards.
+;; same-clumps: A list of numbers of identical or pre-shuffled cards.
+;; id: The current card id.
+;; positions: A list of positions that aren't taken yet.
+;; random-state: The RNG.
+(define (deck unique-cards same-clumps id positions random-state)
+  (if (<= unique-cards 0)
+      (make-clumps same-clumps id positions random-state)
+      (let ((new-positions (pop-random positions random-state)))
+	(cons (cons id (car new-positions))
+	      (deck (1- unique-cards) same-clumps (1+ id) (cdr new-positions)
+		    random-state)))))
+
+(define args (map string->number (cdr (command-line))))
+
+(deck (car args) (cdr args) 0 (iota (apply + args))
+      (random-state-from-platform))
