@@ -4,11 +4,14 @@
 ;; A card is represented by a pair. The first element is its id. The second is
 ;; its position in the final, shuffled deck.
 
+(use-modules (ice-9 format))
+(use-modules (ice-9 rdelim))
+
 ;; Returns the list lst with item k removed.
 (define (remove-k lst k)
-  (if (<= k 0)
-      (cdr lst)
-      (cons (car lst) (remove-k (cdr lst) (1- k)))))
+  (if (positive? k)
+      (cons (car lst) (remove-k (cdr lst) (1- k)))
+      (cdr lst)))
 
 ;; Returns the list lst with a random element moved to the head.
 (define (pop-random lst random-state)
@@ -23,11 +26,11 @@
 
 ;; Returns a sorted list of random positions along with the remaining positions.
 (define (get-positions n positions result random-state)
-  (if (<= n 0)
-      (cons result positions)
+  (if (positive? n)
       (let ((new-pop (pop-random positions random-state)))
 	(get-positions (1- n) (cdr new-pop) (insert result (car new-pop))
-		       random-state))))
+		       random-state))
+      (cons result positions)))
 
 ;; Make a list of cards with the same id and attach tail to the end.
 (define (make-same-clump id positions tail)
@@ -53,14 +56,67 @@
 ;; positions: A list of positions that aren't taken yet.
 ;; random-state: The RNG.
 (define (deck unique-cards same-clumps id positions random-state)
-  (if (<= unique-cards 0)
-      (make-clumps same-clumps id positions random-state)
+  (if (positive? unique-cards)
       (let ((new-positions (pop-random positions random-state)))
 	(cons (cons id (car new-positions))
 	      (deck (1- unique-cards) same-clumps (1+ id) (cdr new-positions)
-		    random-state)))))
+		    random-state)))
+      (make-clumps same-clumps id positions random-state)))
+
+; #t means pile A. #f means pile B.
+(define (get-new-pile card median)
+  (< (cdr card) median))
+
+(define (get-transfer pile new-pile median n)
+  (if (and (not (null? pile)) (eq? new-pile (get-new-pile (car pile) median)))
+      (get-transfer (cdr pile) new-pile median (1+ n))
+      n))
+
+;; Splits a pile into two piles.
+(define (split pile median pile-a pile-b)
+  (if (null? pile)
+      (list pile-a pile-b)
+      (let* ((new-pile (get-new-pile (car pile) median))
+	     ;; Number of cards to transfer.
+	     (transfer-n (get-transfer pile new-pile median 0))
+	     ;; The actual cards to transfer.
+	     (transfer (list-head pile transfer-n))
+	     ;; The pile in hand after the transfer.
+	     (next-pile (list-tail pile transfer-n)))
+	(format #t "~d to ~a" transfer-n
+		(if new-pile
+		    "A"
+		    "B"))
+	(read-line)
+	(if new-pile
+	    (split next-pile median (append transfer pile-a) pile-b)
+	    (split next-pile median pile-a (append transfer pile-b))))))
+
+;; Shuffle the deck. Argument is a list containing the deck to shuffle.
+(define (shuffle piles)
+  (unless (null? piles)
+	  ;; The current pile.
+	  (let ((current (car piles))
+		;; All piles after the current one.
+		(rest (cdr piles)))
+	    (if (null? (cdr current))
+		(shuffle rest)
+		(begin
+		  (format #t "Take pile of ~d cards.~%" (length current))
+		  (if (apply = (map car current))
+		      (begin
+			(format #t "This pile is already shuffled.~%")
+			(shuffle rest))
+		      (let ((positions (map cdr current)))
+			(shuffle
+			 (append
+			  (split
+			   current
+			   (quotient
+			    (+ 1 (apply max positions) (apply min positions)) 2)
+			   '() '())
+			  rest)))))))))
 
 (define args (map string->number (cdr (command-line))))
-
-(deck (car args) (cdr args) 0 (iota (apply + args))
-      (random-state-from-platform))
+(shuffle (list (deck (car args) (cdr args) 0 (iota (apply + args))
+		     (random-state-from-platform))))
