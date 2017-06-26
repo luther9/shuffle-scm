@@ -1,6 +1,8 @@
 #!/usr/bin/guile
 !#
 
+;; 2017 Luther Thompson. This program is public domain. See COPYING for details.
+
 ;; A card is represented by a pair. The car is its id. The cdr is its position
 ;; in the final, shuffled deck.
 
