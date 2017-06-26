@@ -1,22 +1,16 @@
 #!/usr/bin/guile
 !#
 
-;; A card is represented by a pair. The first element is its id. The second is
-;; its position in the final, shuffled deck.
+;; A card is represented by a pair. The car is its id. The cdr is its position
+;; in the final, shuffled deck.
 
 (use-modules (ice-9 format))
 (use-modules (ice-9 rdelim))
 
-;; Returns the list lst with item k removed.
-(define (remove-k lst k)
-  (if (positive? k)
-      (cons (car lst) (remove-k (cdr lst) (1- k)))
-      (cdr lst)))
-
 ;; Returns the list lst with a random element moved to the head.
 (define (pop-random lst random-state)
   (let ((i (random (length lst) random-state)))
-    (cons (list-ref lst i) (remove-k lst i))))
+    (cons (list-ref lst i) (append (list-head lst i) (list-tail lst (1+ i))))))
 
 ;; Inserts an item into the list in ascending order.
 (define (insert lst x)
