@@ -1,67 +1,66 @@
-#!/usr/bin/guile
+#!/usr/bin/env guile
 !#
 
 ;; 2017 Luther Thompson. This program is public domain. See COPYING for details.
 
-;; A card is represented by a pair. The car is its id. The cdr is its position
-;; in the final, shuffled deck.
-
-(use-modules (ice-9 format))
 (use-modules (ice-9 rdelim))
+
+;; A pile of cards is represented by a list of integers. The head represents the
+;; top of the pile.
 
 ;; Returns the list lst with a random element moved to the head.
 (define (pop-random lst random-state)
   (let ((i (random (length lst) random-state)))
     (cons (list-ref lst i) (append (list-head lst i) (list-tail lst (1+ i))))))
 
-;; Inserts an item into the list in ascending order.
-(define (insert lst x)
-  (if (or (null? lst) (<= x (car lst)))
-      (cons x lst)
-      (cons (car lst) (insert (cdr lst) x))))
+;;; Inserts an item into the list in ascending order.
+(define (insort lst x limit)
+  (if (and (positive? limit) (> x (car lst)))
+      (cons (car lst) (insort (cdr lst) x (1- limit)))
+      (cons x lst)))
 
-;; Returns a sorted list of random positions along with the remaining positions.
-(define (get-positions n positions result random-state)
-  (if (positive? n)
-      (let ((new-pop (pop-random positions random-state)))
-	(get-positions (1- n) (cdr new-pop) (insert result (car new-pop))
-		       random-state))
-      (cons result positions)))
+;;; Choose some elements to add to a list in sorted order.
+;;; identical: Number of elements to add.
+;;; pool: The list to select random numbers from.
+;;; random-state: The RNG.
+;;; tail: The end of the new list.
+;;; limit: The length of the sorted part of tail.
+(define (add-clump identical pool random-state tail limit)
+  (if (positive? identical)
+      (let ((new-pool (pop-random pool random-state)))
+	(add-clump (1- identical) (cdr new-pool) random-state
+		   (insort tail (car new-pool) limit) (1+ limit)))
+      (cons pool tail)))
 
-;; Make a list of cards with the same id and attach tail to the end.
-(define (make-same-clump id positions tail)
-  (if (null? positions)
+;;; Add some semi-sorted elements to a list.
+;;; identicals: A list of integers. Each number is the length of a sorted
+;;; sub-list of the return value.
+;;; pool: The list to select random numbers from.
+;;; random-state: RNG.
+(define (add-identicals identicals pool random-state tail)
+  (if (null? identicals)
       tail
-      (cons (cons id (car positions))
-	    (make-same-clump id (cdr positions) tail))))
+      (let ((clump-result
+	     (add-clump (car identicals) pool random-state tail 0)))
+	(add-identicals (cdr identicals) (car clump-result) random-state
+			(cdr clump-result)))))
 
-(define (make-clumps same-clumps id positions random-state)
-  (if (null? same-clumps)
-      '()
-      (let ((position-results
-	     (get-positions (car same-clumps) positions '() random-state)))
-	(make-same-clump id (car position-results)
-			 (make-clumps (cdr same-clumps)
-				      (1+ id) (cdr position-results)
-				      random-state)))))
-
-;; Returns a list of cards mapped to their future position.
-;; unique-cards: The number of unique cards.
-;; same-clumps: A list of numbers of identical or pre-shuffled cards.
-;; id: The current card id.
-;; positions: A list of positions that aren't taken yet.
-;; random-state: The RNG.
-(define (deck unique-cards same-clumps id positions random-state)
-  (if (positive? unique-cards)
-      (let ((new-positions (pop-random positions random-state)))
-	(cons (cons id (car new-positions))
-	      (deck (1- unique-cards) same-clumps (1+ id) (cdr new-positions)
-		    random-state)))
-      (make-clumps same-clumps id positions random-state)))
+;;; Return a list of cards mapped to their future position.
+;;; uniques: The number of unique cards.
+;;; identicals: A list of numbers of identical or pre-shuffled cards.
+;;; pool: A list of positions that aren't taken yet.
+;;; random-state: The RNG.
+;;; tail: The end of the new list.
+(define (deck uniques identicals pool random-state tail)
+  (if (positive? uniques)
+      (let ((new-pool (pop-random pool random-state)))
+	(deck (1- uniques) identicals (cdr new-pool) random-state
+	      (cons (car new-pool) tail)))
+      (add-identicals identicals pool random-state tail)))
 
 ; #t means pile A. #f means pile B.
 (define (get-new-pile card median)
-  (< (cdr card) median))
+  (> card median))
 
 (define (get-transfer pile new-pile median n)
   (if (and (not (null? pile)) (eq? new-pile (get-new-pile (car pile) median)))
@@ -69,7 +68,7 @@
       n))
 
 ;; Splits a pile into two piles.
-(define (split pile median pile-a pile-b)
+(define (split pile median pile-a pile-b output input)
   (if (null? pile)
       (list pile-a pile-b)
       (let* ((new-pile (get-new-pile (car pile) median))
@@ -79,40 +78,44 @@
 	     (transfer (list-head pile transfer-n))
 	     ;; The pile in hand after the transfer.
 	     (next-pile (list-tail pile transfer-n)))
-	(format #t "~d to ~a" transfer-n
+	(format output "~A to ~A" transfer-n
 		(if new-pile
 		    "A"
 		    "B"))
-	(read-line)
+	(read-line input)
 	(if new-pile
-	    (split next-pile median (append transfer pile-a) pile-b)
-	    (split next-pile median pile-a (append transfer pile-b))))))
+	    (split next-pile median (append transfer pile-a) pile-b output
+		   input)
+	    (split next-pile median pile-a (append transfer pile-b) output
+		   input)))))
 
-;; Shuffle the deck. Argument is a list containing the deck to shuffle.
-(define (shuffle piles)
+;;; Return #t iff the pile is shuffled.
+(define (shuffled? lst)
+  (sorted? lst <))
+
+;;; Shuffle the deck. Argument is a list containing the deck to shuffle.
+(define (shuffle piles output input)
   (unless (null? piles)
 	  ;; The current pile.
-	  (let ((current (car piles))
+	  (let ((hand (car piles))
 		;; All piles after the current one.
 		(rest (cdr piles)))
-	    (if (null? (cdr current))
-		(shuffle rest)
+	    (if (shuffled? hand)
 		(begin
-		  (format #t "Take pile of ~d cards.~%" (length current))
-		  (if (apply = (map car current))
-		      (begin
-			(format #t "This pile is already shuffled.~%")
-			(shuffle rest))
-		      (let ((positions (map cdr current)))
-			(shuffle
-			 (append
-			  (split
-			   current
-			   (quotient
-			    (+ 1 (apply max positions) (apply min positions)) 2)
-			   '() '())
-			  rest)))))))))
+		  (format output "Pile of ~A cards is already shuffled.\n"
+			  (length hand))
+		  (shuffle rest output input))
+		(begin
+		  (format output "~A\n" (map length piles))
+		  (shuffle (append (split hand
+					  (quotient (+ (apply max hand)
+						       (apply min hand))
+						    2)
+					  '() '() output input)
+				   rest)
+			   output input))))))
 
 (define args (map string->number (cdr (command-line))))
-(shuffle (list (deck (car args) (cdr args) 0 (iota (apply + args))
-		     (random-state-from-platform))))
+(shuffle (list (deck (car args) (cdr args) (iota (apply + args))
+		     (random-state-from-platform) '()))
+	 (current-output-port) (current-input-port))
