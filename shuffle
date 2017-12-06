@@ -3,6 +3,7 @@
 
 ;; 2017 Luther Thompson. This program is public domain. See COPYING for details.
 
+(use-modules (ice-9 getopt-long))
 (use-modules (ice-9 rdelim))
 
 ;; A pile of cards is represented by a list of integers. The head represents the
@@ -115,7 +116,15 @@
 				   rest)
 			   output input))))))
 
-(define args (map string->number (cdr (command-line))))
-(shuffle (list (deck (car args) (cdr args) (iota (apply + args))
-		     (random-state-from-platform) '()))
+(define options
+  (getopt-long (command-line)
+	       `((seed (value #t) (predicate ,string->number)
+		       (single-char #\s)))))
+(define args (map string->number (option-ref options '() #f)))
+(define seed (option-ref options 'seed #f))
+(shuffle `(,(deck (car args) (cdr args) (iota (apply + args))
+		  (if seed
+		      (seed->random-state seed)
+		      (random-state-from-platform))
+		  '()))
 	 (current-output-port) (current-input-port))
