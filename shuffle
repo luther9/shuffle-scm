@@ -9,10 +9,23 @@
 ;; A pile of cards is represented by a list of integers. The head represents the
 ;; top of the pile.
 
-;; Returns the list lst with a random element moved to the head.
+;;; Move element i to the head of lst.
+(define (get-i lst i)
+  (if (positive? i)
+      (let ((inner (get-i (cdr lst) (1- i))))
+	(cons* (car inner) (car lst) (cdr inner)))
+      lst))
+
+;;; Return the list lst with a random element moved to the head.
 (define (pop-random lst random-state)
-  (let ((i (random (length lst) random-state)))
-    (cons (list-ref lst i) (append (list-head lst i) (list-tail lst (1+ i))))))
+  (get-i lst (random (length lst) random-state)))
+
+;;; Shuffle a list.
+(define (shuffle-list lst random-state tail)
+  (if (null? lst)
+      tail
+      (let ((lst1 (pop-random lst random-state)))
+	(shuffle-list (cdr lst1) random-state (cons (car lst1) tail)))))
 
 ;;; Inserts an item into the list in ascending order.
 (define (insort lst x limit)
@@ -26,11 +39,10 @@
 ;;; random-state: The RNG.
 ;;; tail: The end of the new list.
 ;;; limit: The length of the sorted part of tail.
-(define (add-clump identical pool random-state tail limit)
+(define (add-clump identical pool tail limit)
   (if (positive? identical)
-      (let ((new-pool (pop-random pool random-state)))
-	(add-clump (1- identical) (cdr new-pool) random-state
-		   (insort tail (car new-pool) limit) (1+ limit)))
+      (add-clump (1- identical) (cdr pool) (insort tail (car pool) limit)
+		 (1+ limit))
       (cons pool tail)))
 
 ;;; Add some semi-sorted elements to a list.
@@ -38,12 +50,11 @@
 ;;; sub-list of the return value.
 ;;; pool: The list to select random numbers from.
 ;;; random-state: RNG.
-(define (add-identicals identicals pool random-state tail)
+(define (add-identicals identicals pool tail)
   (if (null? identicals)
       tail
-      (let ((clump-result
-	     (add-clump (car identicals) pool random-state tail 0)))
-	(add-identicals (cdr identicals) (car clump-result) random-state
+      (let ((clump-result (add-clump (car identicals) pool tail 0)))
+	(add-identicals (cdr identicals) (car clump-result)
 			(cdr clump-result)))))
 
 ;;; Return a list of cards mapped to their future position.
@@ -52,12 +63,10 @@
 ;;; pool: A list of positions that aren't taken yet.
 ;;; random-state: The RNG.
 ;;; tail: The end of the new list.
-(define (deck uniques identicals pool random-state tail)
+(define (deck uniques identicals pool tail)
   (if (positive? uniques)
-      (let ((new-pool (pop-random pool random-state)))
-	(deck (1- uniques) identicals (cdr new-pool) random-state
-	      (cons (car new-pool) tail)))
-      (add-identicals identicals pool random-state tail)))
+      (deck (1- uniques) identicals (cdr pool) (cons (car pool) tail))
+      (add-identicals identicals pool tail)))
 
 ; #t means pile A. #f means pile B.
 (define (get-new-pile card median)
@@ -122,9 +131,11 @@
 		       (single-char #\s)))))
 (define args (map string->number (option-ref options '() #f)))
 (define seed (option-ref options 'seed #f))
-(shuffle `(,(deck (car args) (cdr args) (iota (apply + args))
-		  (if seed
-		      (seed->random-state seed)
-		      (random-state-from-platform))
+(shuffle `(,(deck (car args) (cdr args)
+		  (shuffle-list (iota (apply + args))
+				(if seed
+				    (seed->random-state seed)
+				    (random-state-from-platform))
+				'())
 		  '()))
 	 (current-output-port) (current-input-port))
