@@ -4,6 +4,7 @@
 ;; 2017 Luther Thompson. This program is public domain. See COPYING for details.
 
 (use-modules (ice-9 getopt-long))
+(use-modules (ice-9 receive))
 (use-modules (ice-9 rdelim))
 
 ;; A pile of cards is represented by a list of integers. The head represents the
@@ -36,7 +37,6 @@
 ;;; Choose some elements to add to a list in sorted order.
 ;;; identical: Number of elements to add.
 ;;; pool: The list to select random numbers from.
-;;; random-state: The RNG.
 ;;; tail: The end of the new list.
 ;;; limit: The length of the sorted part of tail.
 (define (add-clump identical pool tail limit)
@@ -61,7 +61,6 @@
 ;;; uniques: The number of unique cards.
 ;;; identicals: A list of numbers of identical or pre-shuffled cards.
 ;;; pool: A list of positions that aren't taken yet.
-;;; random-state: The RNG.
 ;;; tail: The end of the new list.
 (define (deck uniques identicals pool tail)
   (if (positive? uniques)
@@ -103,6 +102,42 @@
 (define (shuffled? lst)
   (sorted? lst <))
 
+;;; Return #t if there is a second element which is one more than the first.
+;;; lst: A list that must have at least one element.
+(define (in-streak? lst)
+  (let ((rest (cdr lst)))
+    (and (not (null? rest)) (= (1+ (car lst)) (car rest)))))
+
+;;; Return two values: 1st is the number at the beginning of the median streak.
+;;; 2nd is the list that begins with median-int.
+;;; start: The first number of the current streak.
+;;; current-node: The list to search for median-int.
+;;; median-int: The number that must be within the middle chunk.
+(define (get-middle-chunk start current-node median-int)
+  (let ((rest (cdr current-node)))
+    (if (= (car current-node) median-int)
+	(values start current-node)
+	(get-middle-chunk (if (in-streak? current-node) start (car rest))
+			  rest median-int))))
+
+;;; Get the last value in the first streak of lst.
+(define (streak-end lst)
+  (if (in-streak? lst)
+      (streak-end (cdr lst))
+      (car lst)))
+
+;;; Get the highest number that will go to pile B.
+(define (get-cutoff pile)
+  (display pile)
+  (newline)
+  (let ((median (+ (apply min pile) (/ (1- (length pile)) 2))))
+    (receive (start median-list)
+	     (get-middle-chunk (car pile) pile (truncate median))
+	     (let ((end (streak-end median-list)))
+	       (if (< (- median start) (- end median))
+		   (1- start)
+		   end)))))
+
 ;;; Shuffle the deck. Argument is a list containing the deck to shuffle.
 (define (shuffle piles output input)
   (unless (null? piles)
@@ -117,11 +152,8 @@
 		  (shuffle rest output input))
 		(begin
 		  (format output "~A\n" (map length piles))
-		  (shuffle (append (split hand
-					  (quotient (+ (apply max hand)
-						       (apply min hand))
-						    2)
-					  '() '() output input)
+		  (shuffle (append (split hand (get-cutoff hand) '() '() output
+					  input)
 				   rest)
 			   output input))))))
 
