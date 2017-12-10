@@ -128,8 +128,6 @@
 
 ;;; Get the highest number that will go to pile B.
 (define (get-cutoff pile)
-  (display pile)
-  (newline)
   (let ((median (+ (apply min pile) (/ (1- (length pile)) 2))))
     (receive (start median-list)
 	     (get-middle-chunk (car pile) pile (truncate median))
