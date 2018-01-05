@@ -10,23 +10,16 @@
 ;; A pile of cards is represented by a list of integers. The head represents the
 ;; top of the pile.
 
-;;; Move element i to the head of lst.
-(define (get-i lst i)
-  (if (positive? i)
-      (let ((inner (get-i (cdr lst) (1- i))))
-	(cons* (car inner) (car lst) (cdr inner)))
-      lst))
-
-;;; Return the list lst with a random element moved to the head.
-(define (pop-random lst random-state)
-  (get-i lst (random (length lst) random-state)))
-
-;;; Shuffle a list.
-(define (shuffle-list lst random-state tail)
-  (if (null? lst)
-      tail
-      (let ((lst1 (pop-random lst random-state)))
-	(shuffle-list (cdr lst1) random-state (cons (car lst1) tail)))))
+;;; Return a shuffled list.
+(define* (shuffled-list max random-state current
+			#:optional (v (make-vector max)))
+  (if (>= current max)
+      (vector->list v)
+      (let* ((next (1+ current))
+	     (i (random next random-state)))
+	(vector-set! v current (vector-ref v i))
+	(vector-set! v i current)
+	(shuffled-list max random-state next v))))
 
 ;;; Inserts an item into the list in ascending order.
 (define (insort lst x limit)
@@ -162,10 +155,10 @@
 (define args (map string->number (option-ref options '() #f)))
 (define seed (option-ref options 'seed #f))
 (shuffle `(,(deck (car args) (cdr args)
-		  (shuffle-list (iota (apply + args))
-				(if seed
-				    (seed->random-state seed)
-				    (random-state-from-platform))
-				'())
+		  (shuffled-list (apply + args)
+				 (if seed
+				     (seed->random-state seed)
+				     (random-state-from-platform))
+				 0)
 		  '()))
 	 (current-output-port) (current-input-port))
