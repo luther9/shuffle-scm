@@ -218,13 +218,11 @@
 	 (split-arg-list (cdr argument-list)
 			 (cons (car argument-list) before)))))
 
-(define short-opt-rx           (make-regexp "^-([a-zA-Z]+)(.*)"))
-(define long-opt-no-value-rx   (make-regexp "^--([^=]+)$"))
-(define long-opt-with-value-rx (make-regexp "^--([^=]+)=(.*)"))
+(define long-opt-no-value-rx   (make-regexp "^-([^=]+)$"))
+(define long-opt-with-value-rx (make-regexp "^-([^=]+)=(.*)"))
 
 (define (looks-like-an-option string)
-  (or (regexp-exec short-opt-rx string)
-      (regexp-exec long-opt-with-value-rx string)
+  (or (regexp-exec long-opt-with-value-rx string)
       (regexp-exec long-opt-no-value-rx string)))
 
 (define (process-options specs argument-ls stop-at-first-non-option)
