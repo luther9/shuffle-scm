@@ -153,9 +153,7 @@
 			   output input))))))
 
 (define options
-  (get-flags (command-line)
-	       `((seed (value #t) (predicate ,string->number)
-		       (single-char #\s)))))
+  (get-flags (command-line) `((seed (value #t) (predicate ,string->number)))))
 (define args (map string->number (option-ref options '() #f)))
 (define seed (option-ref options 'seed #f))
 (shuffle `(,(deck (car args) (cdr args)

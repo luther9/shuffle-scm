@@ -175,21 +175,19 @@
   (exit 1))
 
 (define-record-type option-spec
-  (%make-option-spec name required? option-spec->single-char predicate value-policy)
+  (%make-option-spec name required? predicate value-policy)
   option-spec?
   (name
    option-spec->name set-option-spec-name!)
   (required?
    option-spec->required? set-option-spec-required?!)
-  (option-spec->single-char
-   option-spec->single-char set-option-spec-single-char!)
   (predicate
    option-spec->predicate set-option-spec-predicate!)
   (value-policy
    option-spec->value-policy set-option-spec-value-policy!))
 
 (define (make-option-spec name)
-  (%make-option-spec name #f #f #f #f))
+  (%make-option-spec name #f #f #f))
 
 (define (parse-option-spec desc)
   (let ((spec (make-option-spec (symbol->string (car desc)))))
@@ -198,10 +196,6 @@
                 (set-option-spec-required?! spec val))
                (('value val)
                 (set-option-spec-value-policy! spec val))
-               (('single-char val)
-                (or (char? val)
-                    (error "`single-char' value must be a char!"))
-                (set-option-spec-single-char! spec val))
                (('predicate pred)
                 (set-option-spec-predicate!
                  spec (lambda (name val)
@@ -238,11 +232,7 @@
   ;; options nor their values.
   (let ((idx (map (lambda (spec)
                     (cons (option-spec->name spec) spec))
-                  specs))
-        (sc-idx (map (lambda (spec)
-                       (cons (make-string 1 (option-spec->single-char spec))
-                             spec))
-                     (remove-if-not option-spec->single-char specs))))
+                  specs)))
     (let loop ((unclumped 0) (argument-ls argument-ls) (found '()) (etc '()))
       (define (eat! spec ls)
         (cond
