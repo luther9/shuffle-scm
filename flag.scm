@@ -201,20 +201,22 @@
                  spec (lambda (name val)
                         (or (not val)
                             (pred val)
-                            (fatal-error "option predicate failed: --~a"
+                            (fatal-error "option predicate failed: -~a"
                                          name)))))
                ((prop val)
                 (error "invalid get-flags option property:" prop)))
               (cdr desc))
     spec))
 
-(define (split-arg-list argument-list)
+(define* (split-arg-list argument-list #:optional (before '()))
   ;; Scan ARGUMENT-LIST for "--" and return (BEFORE-LS . AFTER-LS).
   ;; Discard the "--".  If no "--" is found, AFTER-LS is empty.
-  (let loop ((yes '()) (no argument-list))
-    (cond ((null? no)               (cons (reverse yes) no))
-	  ((string=? "--" (car no)) (cons (reverse yes) (cdr no)))
-	  (else (loop (cons (car no) yes) (cdr no))))))
+  (cond ((null? argument-list) (cons (reverse before) argument-list))
+	((string=? "--" (car argument-list))
+	 (cons (reverse before) (cdr argument-list)))
+	(else
+	 (split-arg-list (cdr argument-list)
+			 (cons (car argument-list) before)))))
 
 (define short-opt-rx           (make-regexp "^-([a-zA-Z]+)(.*)"))
 (define long-opt-no-value-rx   (make-regexp "^--([^=]+)$"))
@@ -255,26 +257,6 @@
          (cons found (reverse etc)))
         ((opt . rest)
          (cond
-          ((regexp-exec short-opt-rx opt)
-           => (lambda (match)
-                (if (> unclumped 0)
-                    ;; Next option is known not to be clumped.
-                    (let* ((c (match:substring match 1))
-                           (spec (or (assoc-ref sc-idx c)
-                                     (fatal-error "no such option: -~a" c))))
-                      (eat! spec rest))
-                    ;; Expand a clumped group of short options.
-                    (let* ((extra (match:substring match 2))
-                           (unclumped-opts
-                            (append (map (lambda (c)
-                                           (string-append "-" (make-string 1 c)))
-                                         (string->list
-                                          (match:substring match 1)))
-                                    (if (string=? "" extra) '() (list extra)))))
-                      (loop (length unclumped-opts)
-                            (append unclumped-opts rest)
-                            found
-                            etc)))))
           ((regexp-exec long-opt-no-value-rx opt)
            => (lambda (match)
                 (let* ((opt (match:substring match 1))
