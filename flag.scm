@@ -244,7 +244,7 @@
          ((eq? #t (option-spec->value-policy spec))
           (if (or (null? ls)
                   (looks-like-an-option (car ls)))
-              (fatal-error "option must be specified with argument: --~a"
+              (fatal-error "option must be specified with argument: -~a"
                            (option-spec->name spec))
               (loop (- unclumped 2) (cdr ls) (acons spec (car ls) found) etc)))
          (else
@@ -259,16 +259,16 @@
            => (lambda (match)
                 (let* ((opt (match:substring match 1))
                        (spec (or (assoc-ref idx opt)
-                                 (fatal-error "no such option: --~a" opt))))
+                                 (fatal-error "no such option: -~a" opt))))
                   (eat! spec rest))))
           ((regexp-exec long-opt-with-value-rx opt)
            => (lambda (match)
                 (let* ((opt (match:substring match 1))
                        (spec (or (assoc-ref idx opt)
-                                 (fatal-error "no such option: --~a" opt))))
+                                 (fatal-error "no such option: -~a" opt))))
                   (if (option-spec->value-policy spec)
                       (eat! spec (cons (match:substring match 2) rest))
-                      (fatal-error "option does not support argument: --~a"
+                      (fatal-error "option does not support argument: -~a"
                                    opt)))))
           ((and stop-at-first-non-option
                 (<= unclumped 0))
@@ -322,7 +322,7 @@ to add a `single-char' clause to the option description."
                         (val (assq-ref found spec)))
                     (and (option-spec->required? spec)
                          (or val
-                             (fatal-error "option must be specified: --~a"
+                             (fatal-error "option must be specified: -~a"
                                           name)))
                     (let ((pred (option-spec->predicate spec)))
                       (and pred (pred name val)))))
