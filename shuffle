@@ -3,13 +3,13 @@
 
 ;; 2017 Luther Thompson. This program is public domain. See COPYING for details.
 
-(use-modules (ice-9 receive))
-(use-modules (ice-9 rdelim))
+(use-modules ((ice-9 receive) #:select (receive)))
+(use-modules ((ice-9 rdelim) #:select (read-line)))
 
 ;; 'add-to-load-path' doesn't belong in this file when it's installed, but it's
 ;; the only way to test the module.
 (add-to-load-path ".")
-(use-modules (flag))
+(use-modules ((flag) #:select (get-flags option-ref)))
 
 ;; A pile of cards is represented by a list of integers. The head represents the
 ;; top of the pile.
