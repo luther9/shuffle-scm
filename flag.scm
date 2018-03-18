@@ -26,9 +26,8 @@
 ;;; options they want to process using a grammar, rather than some arbitrary
 ;;; structure.  The grammar makes the option descriptions easy to read.
 ;;;
-;;; `get-flags' is a procedure for parsing command-line arguments in a
-;;; manner consistent with other GNU programs.  `option-ref' is a procedure
-;;; that facilitates processing of the `get-flags' return value.
+;;; `get-flags' is a procedure for parsing command-line arguments.  `option-ref'
+;;; is a procedure that facilitates processing of the `get-flags' return value.
 
 ;;; (get-flags ARGS GRAMMAR)
 ;;; Parse the arguments ARGS according to the argument list grammar GRAMMAR.
@@ -42,12 +41,9 @@
 ;;; ((OPTION (PROPERTY VALUE) ...) ...)
 ;;;
 ;;; Each OPTION should be a symbol.  `get-flags' will accept a
-;;; command-line option named `--OPTION'.
+;;; command-line option named `-OPTION'.
 ;;; Each option can have the following (PROPERTY VALUE) pairs:
 ;;;
-;;;   (single-char CHAR) --- Accept `-CHAR' as a single-character
-;;;		equivalent to `--OPTION'.  This is how to specify traditional
-;;;		Unix-style flags.
 ;;;   (required? BOOL) --- If BOOL is true, the option is required.
 ;;;		get-flags will raise an error if it is not found in ARGS.
 ;;;   (value BOOL) --- If BOOL is #t, the option accepts a value; if
@@ -62,43 +58,26 @@
 ;;;		need to use quasiquotes to get it into GRAMMAR.
 ;;;
 ;;; The (PROPERTY VALUE) pairs may occur in any order, but each
-;;; property may occur only once.  By default, options do not have
-;;; single-character equivalents, are not required, and do not take
-;;; values.
-;;;
-;;; In ARGS, single-character options may be combined, in the usual
-;;; Unix fashion: ("-x" "-y") is equivalent to ("-xy").  If an option
-;;; accepts values, then it must be the last option in the
-;;; combination; the value is the next argument.  So, for example, using
-;;; the following grammar:
-;;;      ((apples    (single-char #\a))
-;;;       (blimps    (single-char #\b) (value #t))
-;;;       (catalexis (single-char #\c) (value #t)))
-;;; the following argument lists would be acceptable:
-;;;    ("-a" "-b" "bang" "-c" "couth")     ("bang" and "couth" are the values
-;;;                                         for "blimps" and "catalexis")
-;;;    ("-ab" "bang" "-c" "couth")         (same)
-;;;    ("-ac" "couth" "-b" "bang")         (same)
-;;;    ("-abc" "couth" "bang")             (an error, since `-b' is not the
-;;;                                         last option in its combination)
+;;; property may occur only once.  By default, options are not required, and do
+;;; not take values.
 ;;;
 ;;; If an option's value is optional, then `get-flags' decides
 ;;; whether it has a value by looking at what follows it in ARGS.  If
-;;; the next element is does not appear to be an option itself, then
+;;; the next element does not appear to be an option itself, then
 ;;; that element is the option's value.
 ;;;
-;;; The value of a long option can appear as the next element in ARGS,
+;;; The value of an option can appear as the next element in ARGS,
 ;;; or it can follow the option name, separated by an `=' character.
 ;;; Thus, using the same grammar as above, the following argument lists
 ;;; are equivalent:
-;;;   ("--apples" "Braeburn" "--blimps" "Goodyear")
-;;;   ("--apples=Braeburn" "--blimps" "Goodyear")
-;;;   ("--blimps" "Goodyear" "--apples=Braeburn")
+;;;   ("-apples" "Braeburn" "-blimps" "Goodyear")
+;;;   ("-apples=Braeburn" "-blimps" "Goodyear")
+;;;   ("-blimps" "Goodyear" "-apples=Braeburn")
 ;;;
 ;;; If the option "--" appears in ARGS, argument parsing stops there;
 ;;; subsequent arguments are returned as ordinary arguments, even if
 ;;; they resemble options.  So, in the argument list:
-;;;         ("--apples" "Granny Smith" "--" "--blimp" "Goodyear")
+;;;         ("-apples" "Granny Smith" "--" "-blimp" "Goodyear")
 ;;; `get-flags' will recognize the `apples' option as having the
 ;;; value "Granny Smith", but it will not recognize the `blimp'
 ;;; option; it will return the strings "--blimp" and "Goodyear" as
@@ -114,12 +93,11 @@
 ;;;
 ;;; `get-flags' throws an exception if:
 ;;; - it finds an unrecognized property in GRAMMAR
-;;; - the value of the `single-char' property is not a character
 ;;; - it finds an unrecognized option in ARGS
 ;;; - a required option is omitted
 ;;; - an option that requires an argument doesn't get one
 ;;; - an option that doesn't accept an argument does get one (this can
-;;;   only happen using the long option `--opt=value' syntax)
+;;;   only happen using the long option `-opt=value' syntax)
 ;;; - an option predicate fails
 ;;;
 ;;; So, for example:
@@ -127,18 +105,16 @@
 ;;; (define grammar
 ;;;   `((lockfile-dir (required? #t)
 ;;;                   (value #t)
-;;;                   (single-char #\k)
 ;;;                   (predicate ,file-is-directory?))
 ;;;     (verbose (required? #f)
-;;;              (single-char #\v)
 ;;;              (value #f))
-;;;     (x-includes (single-char #\x))
-;;;     (rnet-server (single-char #\y)
-;;;                  (predicate ,string?))))
+;;;     (x-includes)
+;;;     (rnet-server (predicate ,string?))))
 ;;;
-;;; (get-flags '("my-prog" "-vk" "/tmp" "foo1" "--x-includes=/usr/include"
-;;;                "--rnet-server=lamprod" "--" "-fred" "foo2" "foo3")
-;;;                grammar)
+;;; (get-flags '("my-prog" "-verbose" "-lockfile-dir" "/tmp" "foo1"
+;;;              "-x-includes=/usr/include" "-rnet-server=lamprod" "--" "-fred"
+;;;              "foo2" "foo3")
+;;;            grammar)
 ;;; => ((() "foo1" "-fred" "foo2" "foo3")
 ;;; 	(rnet-server . "lamprod")
 ;;; 	(x-includes . "/usr/include")
