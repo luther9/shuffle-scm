@@ -285,8 +285,7 @@
 
 (define* (get-flags program-arguments option-desc-list
                       #:key stop-at-first-non-option)
-  "Process options, handling both long and short options, similar to
-the glibc function 'getopt_long'.  PROGRAM-ARGUMENTS should be a value
+  "Process long options.  PROGRAM-ARGUMENTS should be a value
 similar to what (program-arguments) returns.  OPTION-DESC-LIST is a
 list of option descriptions.  Each option description must satisfy the
 following grammar:
@@ -296,11 +295,9 @@ following grammar:
                                | ()
     <attribute>             :: <required-attribute>
                                | <arg-required-attribute>
-                               | <single-char-attribute>
                                | <predicate-attribute>
                                | <value-attribute>
     <required-attribute>    :: (required? <boolean>)
-    <single-char-attribute> :: (single-char <char>)
     <value-attribute>       :: (value #t)
                                (value #f)
                                (value optional)
@@ -312,9 +309,7 @@ was specified.  There is a special item in the returned alist with a
 key of the empty list, (): the list of arguments that are not options
 or option values.
     By default, options are not required, and option values are not
-required.  By default, single character equivalents are not supported;
-if you want to allow the user to use single character options, you need
-to add a `single-char' clause to the option description."
+required."
   (with-fluids ((%program-name (car program-arguments)))
     (let* ((specifications (map parse-option-spec option-desc-list))
            (pair (split-arg-list (cdr program-arguments)))
