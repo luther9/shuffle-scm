@@ -226,27 +226,25 @@
       (regexp-exec long-opt-no-value-rx string)))
 
 (define* (process-options-loop argument-ls stop-at-first-non-option idx
-			       #:optional (unclumped 0) (found '()) (etc '()))
+			       #:optional (found '()) (etc '()))
   (define (eat! spec ls)
     (cond
      ((eq? 'optional (option-spec->value-policy spec))
       (if (or (null? ls)
 	      (looks-like-an-option (car ls)))
-	  (process-options-loop ls stop-at-first-non-option idx (- unclumped 1)
+	  (process-options-loop ls stop-at-first-non-option idx
 				(acons spec #t found) etc)
 	  (process-options-loop (cdr ls) stop-at-first-non-option idx
-				(- unclumped 2) (acons spec (car ls) found)
-				etc)))
+				(acons spec (car ls) found) etc)))
      ((eq? #t (option-spec->value-policy spec))
       (if (or (null? ls)
 	      (looks-like-an-option (car ls)))
 	  (fatal-error "option must be specified with argument: -~a"
 		       (option-spec->name spec))
 	  (process-options-loop (cdr ls) stop-at-first-non-option idx
-				(- unclumped 2) (acons spec (car ls) found)
-				etc)))
+				(acons spec (car ls) found) etc)))
      (else
-      (process-options-loop ls stop-at-first-non-option idx (- unclumped 1)
+      (process-options-loop ls stop-at-first-non-option idx
 			    (acons spec #t found) etc))))
 
   (match argument-ls
@@ -269,12 +267,11 @@
 		       (eat! spec (cons (match:substring match 2) rest))
 		       (fatal-error "option does not support argument: -~a"
 				    opt)))))
-	   ((and stop-at-first-non-option
-		 (<= unclumped 0))
+	   (stop-at-first-non-option
 	    (cons found (append (reverse etc) argument-ls)))
 	   (else
-	    (process-options-loop rest stop-at-first-non-option idx
-				  (- unclumped 1) found (cons opt etc)))))))
+	    (process-options-loop rest stop-at-first-non-option idx found
+				  (cons opt etc)))))))
 
 (define (process-options specs argument-ls stop-at-first-non-option)
   ;; Use SPECS to scan ARGUMENT-LS; return (FOUND . ETC).
