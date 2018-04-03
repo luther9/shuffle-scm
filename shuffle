@@ -1,99 +1,52 @@
 #!/usr/bin/env guile
 !#
 
-;; 2017 Luther Thompson. This program is public domain. See COPYING for details.
-
-(use-modules ((ice-9 receive) #:select (receive)))
-(use-modules ((ice-9 rdelim) #:select (read-line)))
+;;; 2017-2018 Luther Thompson.
+;;; This program is public domain. See COPYING for details.
 
 ;; 'add-to-load-path' doesn't belong in this file when it's installed, but it's
-;; the only way to test the module.
+;; the only way to test the flag module.
 (add-to-load-path ".")
-(use-modules ((flag) #:select (get-flags option-ref)))
+(use-modules ((ice-9 rdelim) #:select (read-line))
+	     ((ice-9 receive) #:select (receive))
 
-;; A pile of cards is represented by a list of integers. The head represents the
-;; top of the pile.
+	     ((flag) #:select (get-flags option-ref)))
 
-;;; Return a shuffled list.
-(define* (shuffled-list max random-state
-			#:optional (current 0) (v (make-vector max)))
-  (if (>= current max)
-      (vector->list v)
-      (let* ((next (1+ current))
-	     (i (random next random-state)))
-	(vector-set! v current (vector-ref v i))
-	(vector-set! v i current)
-	(shuffled-list max random-state next v))))
+;;; A pile of cards is represented by a list of integers. The head represents
+;;; the top of the pile.
 
-;;; Inserts an item into the list in ascending order.
-(define (insort lst x limit)
-  (if (and (positive? limit) (> x (car lst)))
-      (cons (car lst) (insort (cdr lst) x (1- limit)))
-      (cons x lst)))
+(define-syntax-rule (unpack-pair formal-0 formal-1 expr body ...)
+  (let ((e expr))
+    ((lambda (formal-0 formal-1) body ...) (car e) (cdr e))))
 
-;;; Choose some elements to add to a list in sorted order.
-;;; identical: Number of elements to add.
-;;; pool: The list to select random numbers from.
-;;; tail: The end of the new list.
-;;; limit: The length of the sorted part of tail.
-(define (add-clump identical pool tail limit)
-  (if (positive? identical)
-      (add-clump (1- identical) (cdr pool) (insort tail (car pool) limit)
-		 (1+ limit))
-      (cons pool tail)))
+;;; Split LST into two segments at index K and return them both as lists.
+;;; Preserve the order of the tail.
+(define* (unordered-head-tail lst k #:optional (new '()))
+  (if (positive? k)
+      (unordered-head-tail (cdr lst) (1- k) (cons (car lst) new))
+      (values new lst)))
 
-;;; Add some semi-sorted elements to a list.
-;;; identicals: A list of integers. Each number is the length of a sorted
-;;; sub-list of the return value.
-;;; pool: The list to select random numbers from.
-;;; random-state: RNG.
-(define (add-identicals identicals pool tail)
-  (if (null? identicals)
-      tail
-      (let ((clump-result (add-clump (car identicals) pool tail 0)))
-	(add-identicals (cdr identicals) (car clump-result)
-			(cdr clump-result)))))
+;;; Return a list with all elements of LST with OBJ as the last cdr.
+(define (unordered-append lst obj)
+  (if (null? lst)
+      obj
+      (unordered-append (cdr lst) (cons (car lst) obj))))
 
-;;; Return a list of cards mapped to their future position.
-;;; uniques: The number of unique cards.
-;;; identicals: A list of numbers of identical or pre-shuffled cards.
-;;; pool: A list of positions that aren't taken yet.
-;;; tail: The end of the new list.
-(define (deck uniques identicals pool tail)
-  (if (positive? uniques)
-      (deck (1- uniques) identicals (cdr pool) (cons (car pool) tail))
-      (add-identicals identicals pool tail)))
+(define* (iota-shuffle*! max random-state #:optional (i 0) (lst '()))
+  (if (>= i max)
+      lst
+      (let ((next (1+ i)))
+	(receive (head tail)
+		 (unordered-head-tail lst (random next random-state))
+		 (iota-shuffle*! max random-state next
+				(unordered-append head (cons i tail)))))))
 
-; #t means pile A. #f means pile B.
-(define (get-new-pile card median)
-  (> card median))
-
-(define (get-transfer pile new-pile median n)
-  (if (and (not (null? pile)) (eq? new-pile (get-new-pile (car pile) median)))
-      (get-transfer (cdr pile) new-pile median (1+ n))
-      n))
-
-;; Splits a pile into two piles.
-(define (split pile median pile-a pile-b output input)
-  (if (null? pile)
-      (list pile-a pile-b)
-      (let* ((new-pile (get-new-pile (car pile) median))
-	     ;; Number of cards to transfer.
-	     (transfer-n (get-transfer pile new-pile median 0))
-	     ;; The actual cards to transfer.
-	     (transfer (list-head pile transfer-n))
-	     ;; The pile in hand after the transfer.
-	     (next-pile (list-tail pile transfer-n)))
-	(format output "~A to ~A" transfer-n
-		(if new-pile
-		    "A"
-		    "B"))
-	(read-line input)
-	(if new-pile
-	    (split next-pile median (append transfer pile-a) pile-b output
-		   input)
-	    (split next-pile median pile-a (append transfer pile-b) output
-		   input)))))
+;;; Return a list of all integers in [0, MAX) in a random order.
+(define (iota-shuffle max seed)
+  (iota-shuffle*! max
+		  (if seed
+		      (seed->random-state seed)
+		      (random-state-from-platform))))
 
 ;;; Return #t iff the pile is shuffled.
 (define (shuffled? lst)
@@ -133,8 +86,38 @@
 		   (1- start)
 		   end)))))
 
+;; #t means pile A. #f means pile B.
+(define (get-new-pile card median)
+  (> card median))
+
+(define (get-transfer pile new-pile median n)
+  (if (and (not (null? pile)) (eq? new-pile (get-new-pile (car pile) median)))
+      (get-transfer (cdr pile) new-pile median (1+ n))
+      n))
+
+;; Splits a pile into two piles.
+(define* (split pile
+		#:optional (median (get-cutoff pile)) (pile-a '()) (pile-b '()))
+  (if (null? pile)
+      (list pile-a pile-b)
+      (let* ((new-pile (get-new-pile (car pile) median))
+	     ;; Number of cards to transfer.
+	     (transfer-n (get-transfer pile new-pile median 0))
+	     ;; The actual cards to transfer.
+	     (transfer (list-head pile transfer-n))
+	     ;; The pile in hand after the transfer.
+	     (next-pile (list-tail pile transfer-n)))
+	(format #t "~A to ~A" transfer-n
+		(if new-pile
+		    "A"
+		    "B"))
+	(read-line)
+	(if new-pile
+	    (split next-pile median (append transfer pile-a) pile-b)
+	    (split next-pile median pile-a (append transfer pile-b))))))
+
 ;;; Shuffle the deck. Argument is a list containing the deck to shuffle.
-(define (shuffle piles output input)
+(define (shuffle piles)
   (unless (null? piles)
 	  ;; The current pile.
 	  (let ((hand (car piles))
@@ -142,24 +125,35 @@
 		(rest (cdr piles)))
 	    (if (shuffled? hand)
 		(begin
-		  (format output "Pile of ~A cards is already shuffled.\n"
+		  (format #t "Pile of ~A cards is already shuffled.\n"
 			  (length hand))
-		  (shuffle rest output input))
+		  (shuffle rest))
 		(begin
-		  (format output "~A\n" (map length piles))
-		  (shuffle (append (split hand (get-cutoff hand) '() '() output
-					  input)
-				   rest)
-			   output input))))))
+		  (format #t "~A\n" (map length piles))
+		  (shuffle (append (split hand) rest)))))))
 
-(define options
-  (get-flags (command-line) `((seed (value #t) (predicate ,string->number)))))
-(define args (map string->number (option-ref options '() #f)))
-(define seed (option-ref options 'seed #f))
-(shuffle `(,(deck (car args) (cdr args)
-		  (shuffled-list (apply + args)
-				 (if seed
-				     (seed->random-state seed)
-				     (random-state-from-platform)))
-		  '()))
-	 (current-output-port) (current-input-port))
+;;; Return a list of lists of sorted numbers.
+;;; identicals: A list of numbers of identical or pre-shuffled cards.
+;;; pool: A list of numbers to draw from.
+;;; lst: The last cdr of the return value.
+(define (get-chunks identicals pool lst)
+  (if (null? identicals)
+      lst
+      (receive (chunk pool*) (unordered-head-tail pool (car identicals))
+	       (get-chunks (cdr identicals) pool* (cons (sort chunk <) lst)))))
+
+(let
+    ((options
+      (get-flags (command-line)
+		 `((seed (value #t) (predicate ,string->number))))))
+  (unpack-pair unique identicals
+	       (map string->number (option-ref options '() #f))
+	       (receive (deck pool)
+			(unordered-head-tail
+			 (iota-shuffle (apply + unique identicals)
+				       (option-ref options 'seed #f))
+			 unique)
+			(shuffle
+			 `(,(apply append
+				   (get-chunks identicals pool `(,deck))))))))
+
