@@ -21,10 +21,10 @@
 
 ;;; Split LST into two segments at index K and return them both as lists.
 ;;; Preserve the order of the tail.
-(define* (unordered-head-tail lst k #:optional (new '()))
+(define* (unordered-head-tail lst k #:optional (head '()))
   (if (positive? k)
-      (unordered-head-tail (cdr lst) (1- k) (cons (car lst) new))
-      (values new lst)))
+      (unordered-head-tail (cdr lst) (1- k) (cons (car lst) head))
+      (values head lst)))
 
 ;;; Return a list with all elements of LST with OBJ as the last cdr.
 (define (unordered-append lst obj)
