@@ -9,15 +9,22 @@
 (add-to-load-path ".")
 (use-modules ((ice-9 rdelim) #:select (read-line))
 	     ((ice-9 receive) #:select (receive))
+	     ((srfi srfi-9 gnu) #:select (define-immutable-record-type))
 
 	     ((flag) #:select (get-flags option-ref)))
-
-;;; A pile of cards is represented by a list of integers. The head represents
-;;; the top of the pile.
 
 (define-syntax-rule (unpack-pair formal-0 formal-1 expr body ...)
   (let ((e expr))
     ((lambda (formal-0 formal-1) body ...) (car e) (cdr e))))
+
+;;; A pile of cards is represented by a list of integers. The head represents
+;;; the top of the pile.
+(define-immutable-record-type <pile>
+  (pile lst min len)
+  pile?
+  (lst pile-list)
+  (min pile-min)
+  (len pile-length))
 
 ;;; Split LST into two segments at index K and return them both as lists.
 ;;; Preserve the order of the tail.
