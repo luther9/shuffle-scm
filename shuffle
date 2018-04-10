@@ -17,36 +17,36 @@
   (let ((e expr))
     ((lambda (formal-0 formal-1) body ...) (car e) (cdr e))))
 
-;;; A pile of cards is represented by a list of integers. The head represents
-;;; the top of the pile.
-(define-immutable-record-type <pile>
-  (pile lst min len)
-  pile?
-  (lst pile-list)
-  (min pile-min)
-  (len pile-length))
+;;; A streak represents a group of consecutive integers. Streaks are important
+;;; because they represent sequences in a card pile which will not be split
+;;; apart.
+(define-immutable-record-type <streak>
+  (streak min size)
+  streak?
+  (min streak-min)
+  (size streak-size))
 
-;;; Split LST into two segments at index K and return them both as lists.
-;;; Preserve the order of the tail.
-(define* (unordered-head-tail lst k #:optional (head '()))
+;;; Split LST at index K into two segments and return them both as lists.
+;;; Reverse the order of the head.
+(define* (reverse-split lst k #:optional (head '()))
   (if (positive? k)
-      (unordered-head-tail (cdr lst) (1- k) (cons (car lst) head))
+      (reverse-split (cdr lst) (1- k) (cons (car lst) head))
       (values head lst)))
 
-;;; Return a list with all elements of LST with OBJ as the last cdr.
-(define (unordered-append lst obj)
+;;; Append the elements of LST, in reverse, to OBJ.
+(define (reverse-append lst obj)
   (if (null? lst)
       obj
-      (unordered-append (cdr lst) (cons (car lst) obj))))
+      (reverse-append (cdr lst) (cons (car lst) obj))))
 
 (define* (iota-shuffle*! max random-state #:optional (i 0) (lst '()))
   (if (>= i max)
       lst
       (let ((next (1+ i)))
 	(receive (head tail)
-		 (unordered-head-tail lst (random next random-state))
+		 (reverse-split lst (random next random-state))
 		 (iota-shuffle*! max random-state next
-				(unordered-append head (cons i tail)))))))
+				(reverse-append head (cons i tail)))))))
 
 ;;; Return a list of all integers in [0, MAX) in a random order.
 (define (iota-shuffle max seed)
@@ -56,72 +56,52 @@
 		      (random-state-from-platform))))
 
 ;;; Return #t iff the pile is shuffled.
-(define (shuffled? lst)
-  (sorted? lst <))
+(define (pile-shuffled? p)
+  (null? (cdr p)))
 
-;;; Return #t if there is a second element which is one more than the first.
-;;; lst: A list that must have at least one element.
-(define (in-streak? lst)
-  (let ((rest (cdr lst)))
-    (and (not (null? rest)) (= (1+ (car lst)) (car rest)))))
+(define (pile-size pile)
+  (apply + (map streak-size pile)))
 
-;;; Return two values: 1st is the number at the beginning of the median streak.
-;;; 2nd is the list that begins with median-int.
-;;; start: The first number of the current streak.
-;;; current-node: The list to search for median-int.
-;;; median-int: The number that must be within the middle chunk.
-(define (get-middle-chunk start current-node median-int)
-  (let ((rest (cdr current-node)))
-    (if (= (car current-node) median-int)
-	(values start current-node)
-	(get-middle-chunk (if (in-streak? current-node) start (car rest))
-			  rest median-int))))
+(define (pile-min pile)
+  (apply min (map streak-min pile)))
 
-;;; Get the last value in the first streak of lst.
-(define (streak-end lst)
-  (if (in-streak? lst)
-      (streak-end (cdr lst))
-      (car lst)))
+;;; #t means pile A. #f means pile B.
+(define (get-new-pile streak median)
+  (let ((lo (streak-min streak)))
+    (< (- median lo) (- (+ lo (streak-size streak)) median))))
 
-;;; Get the highest number that will go to pile B.
-(define (get-cutoff pile)
-  (let ((median (+ (apply min pile) (/ (1- (length pile)) 2))))
-    (receive (start median-list)
-	     (get-middle-chunk (car pile) pile (truncate median))
-	     (let ((end (streak-end median-list)))
-	       (if (< (- median start) (- end median))
-		   (1- start)
-		   end)))))
+;;; Return 3 values:
+;;; 1. The remaining hand after the transfer.
+;;; 2. A boolean indicating the new pile. #t means pile A.
+;;; 3. A list of streaks to append to the new pile, in reverse order.
+(define* (get-transfer hand median
+		       #:optional (next (get-new-pile (car hand) median))
+		       (transfer '()))
+  (if (or (null? hand) (not (eq? next (get-new-pile (car hand) median))))
+      (values hand next transfer)
+      (get-transfer (cdr hand) median next (cons (car hand) transfer))))
 
-;; #t means pile A. #f means pile B.
-(define (get-new-pile card median)
-  (> card median))
+(define (reverse-append-streaks a b)
+  (reverse-append (cdr a) (streak-cons b (car a))))
 
-(define (get-transfer pile new-pile median n)
-  (if (and (not (null? pile)) (eq? new-pile (get-new-pile (car pile) median)))
-      (get-transfer (cdr pile) new-pile median (1+ n))
-      n))
-
-;; Splits a pile into two piles.
-(define* (split pile
-		#:optional (median (get-cutoff pile)) (pile-a '()) (pile-b '()))
-  (if (null? pile)
+;;; Split a pile into two piles.
+(define* (split hand
+		#:optional (median (+ (pile-min hand) (/ (pile-size hand) 2)))
+		(pile-a '()) (pile-b '()))
+  (if (null? hand)
       (list pile-a pile-b)
-      (let* ((new-pile (get-new-pile (car pile) median))
-	     ;; Number of cards to transfer.
-	     (transfer-n (get-transfer pile new-pile median 0))
-	     ;; The actual cards to transfer.
-	     (transfer (list-head pile transfer-n))
-	     ;; The pile in hand after the transfer.
-	     (next-pile (list-tail pile transfer-n)))
-	(format #t "~A to ~A" transfer-n
-		(if new-pile
-		    "A"
-		    "B"))
-	(read-line)
-	(if new-pile
-	    (split next-pile median (append transfer pile-a) pile-b)
-	    (split next-pile median pile-a (append transfer pile-b))))))
+      (receive (hand* next-pile transfer) (get-transfer hand median)
+	       (let ((size (pile-size transfer))
+		     (next-letter (if next-pile "A" "B"))
+		     (pile-a*
+		      (if next-pile (reverse-append-streaks transfer pile-a)
+			  pile-a))
+		     (pile-b*
+		      (if next-pile pile-b
+			  (reverse-append-streaks transfer pile-b))))
+		 (format #t "~A to ~A" size next-letter)
+		 (read-line)
+		 (split hand* median pile-a* pile-b*)))))
 
 ;;; Shuffle the deck. Argument is a list containing the deck to shuffle.
 (define (shuffle piles)
@@ -130,37 +110,80 @@
 	  (let ((hand (car piles))
 		;; All piles after the current one.
 		(rest (cdr piles)))
-	    (if (shuffled? hand)
+	    (if (pile-shuffled? hand)
 		(begin
 		  (format #t "Pile of ~A cards is already shuffled.\n"
 			  (length hand))
 		  (shuffle rest))
 		(begin
-		  (format #t "~A\n" (map length piles))
+		  (format #t "~A\n" (map pile-size piles))
 		  (shuffle (append (split hand) rest)))))))
 
-;;; Return a list of lists of sorted numbers.
+(define (append-streaks* reversed streaks)
+  (if (null? reversed)
+      streaks
+      (append-streaks* (cdr reversed)
+		       (apply streak-cons streaks (car reversed)))))
+
+;;; Append lists of streaks.
+(define (append-streaks . streaks)
+  (if (null? streaks)
+      '()
+      (let ((reversed (reverse streaks)))
+	(append-streaks* (cdr reversed) (car reversed)))))
+
+;;; Return a list of streaks.
 ;;; identicals: A list of numbers of identical or pre-shuffled cards.
 ;;; pool: A list of numbers to draw from.
-;;; lst: The last cdr of the return value.
-(define (get-chunks identicals pool lst)
+;;; deck: A pre-existing list of streaks to append to.
+(define (get-chunks identicals pool deck)
   (if (null? identicals)
-      lst
-      (receive (chunk pool*) (unordered-head-tail pool (car identicals))
-	       (get-chunks (cdr identicals) pool* (cons (sort chunk <) lst)))))
+      deck
+      (receive (chunk pool*) (reverse-split pool (car identicals))
+	       (get-chunks (cdr identicals) pool
+			   (append-streaks (list->streaks (sort chunk <))
+					   deck)))))
 
-(let
-    ((options
-      (get-flags (command-line)
-		 `((seed (value #t) (predicate ,string->number))))))
+(define (streak-cons* streaks reversed)
+  (if (null? reversed)
+      streaks
+      (let* ((s (car reversed))
+	     (min (streak-min s))
+	     (size (streak-size s))
+	     (rest (cdr reversed)))
+	(if
+	 (or (null? streaks)
+	     (not
+	      (= (+ (streak-min s) (streak-size s))
+		 (streak-min (car streaks)))))
+	 (streak-cons* (cons s streaks) rest)
+	 (streak-cons*
+	  (cons (streak min (+ size (streak-size (car streaks)))) (cdr streaks))
+	  rest)))))
+
+;;; Add any number of streaks S, to a list of STREAKS.
+(define (streak-cons streaks . s)
+  (streak-cons* streaks (reverse s)))
+
+;;; Return a streak of size 1.
+(define (n->streak n)
+  (streak n 1))
+
+;;; Consolodate a list of numbers into streaks. STREAKS is a list of streaks to
+;;; append to.
+(define* (list->streaks lst #:optional (streaks '()))
+  (apply streak-cons streaks (map n->streak lst)))
+
+(let ((options
+       (get-flags (command-line)
+		  `((seed (value #t) (predicate ,string->number))))))
   (unpack-pair unique identicals
 	       (map string->number (option-ref options '() #f))
-	       (receive (deck pool)
-			(unordered-head-tail
-			 (iota-shuffle (apply + unique identicals)
-				       (option-ref options 'seed #f))
-			 unique)
-			(shuffle
-			 `(,(apply append
-				   (get-chunks identicals pool `(,deck))))))))
-
+	       (let ((size (apply + unique identicals)))
+		 (receive (deck pool)
+			  (reverse-split
+			   (iota-shuffle size (option-ref options 'seed #f))
+			   unique)
+			  (shuffle
+			   `(,(get-chunks identicals pool
+					  (list->streaks deck))))))))
