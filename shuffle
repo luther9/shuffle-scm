@@ -20,8 +20,8 @@
 ;;; A streak represents a group of consecutive integers. Streaks are important
 ;;; because they represent sequences in a card pile which will not be split
 ;;; apart.
-(define-immutable-record-type <streak>
-  (streak min size)
+(define-immutable-record-type <Streak>
+  (Streak min size)
   streak?
   (min streak-min)
   (size streak-size))
@@ -113,7 +113,7 @@
 	    (if (pile-shuffled? hand)
 		(begin
 		  (format #t "Pile of ~A cards is already shuffled.\n"
-			  (length hand))
+			  (pile-size hand))
 		  (shuffle rest))
 		(begin
 		  (format #t "~A\n" (map pile-size piles))
@@ -158,7 +158,7 @@
 		 (streak-min (car streaks)))))
 	 (streak-cons* (cons s streaks) rest)
 	 (streak-cons*
-	  (cons (streak min (+ size (streak-size (car streaks)))) (cdr streaks))
+	  (cons (Streak min (+ size (streak-size (car streaks)))) (cdr streaks))
 	  rest)))))
 
 ;;; Add any number of streaks S, to a list of STREAKS.
@@ -167,7 +167,7 @@
 
 ;;; Return a streak of size 1.
 (define (n->streak n)
-  (streak n 1))
+  (Streak n 1))
 
 ;;; Consolodate a list of numbers into streaks. STREAKS is a list of streaks to
 ;;; append to.
