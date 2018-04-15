@@ -156,7 +156,7 @@
   (if (null? identicals)
       deck
       (receive (chunk pool*) (reverse-split pool (car identicals))
-	       (get-chunks (cdr identicals) pool
+	       (get-chunks (cdr identicals) pool*
 			   (append-streaks (list->streaks (sort chunk <))
 					   deck)))))
 
