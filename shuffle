@@ -1,7 +1,7 @@
 #!/usr/bin/env guile
 !#
 
-;;; 2017-2018 Luther Thompson
+;;; Copyright 2017-2018 Luther Thompson
 
 ;;; This program is free software: you can redistribute it and/or modify
 ;;; it under the terms of the GNU General Public License (GPL3) as published by
