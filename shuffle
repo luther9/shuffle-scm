@@ -194,16 +194,18 @@
 (define* (list->streaks lst #:optional (streaks '()))
   (apply streak-cons streaks (map Streak lst)))
 
-(let ((options
-       (get-flags (command-line)
-		  `((seed (value #t) (predicate ,string->number))))))
-  (unpack-pair unique identicals
-	       (map string->number (option-ref options '() #f))
-	       (let ((size (apply + unique identicals)))
-		 (receive (deck pool)
-			  (reverse-split
-			   (iota-shuffle size (option-ref options 'seed #f))
-			   unique)
-			  (shuffle
-			   `(,(get-chunks identicals pool
-					  (list->streaks deck))))))))
+(let* ((options
+	(get-flags (command-line)
+		   `((seed (value #t) (predicate ,string->number)))))
+       (args (map string->number (option-ref options '() #f))))
+  (if (or (null? args) (memq #f args))
+      (format #t "shuffle requires at least 1 integer argument\n")
+      (unpack-pair unique identicals args
+		   (let ((size (apply + unique identicals)))
+		     (receive (deck pool)
+			 (reverse-split
+			  (iota-shuffle size (option-ref options 'seed #f))
+			  unique)
+		       (shuffle
+			`(,(get-chunks identicals pool
+				       (list->streaks deck)))))))))
