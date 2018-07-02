@@ -25,7 +25,7 @@
 (add-to-load-path ".")
 (use-modules ((ice-9 rdelim) #:select (read-line))
 	     ((ice-9 receive) #:select (receive))
-	     ((srfi srfi-1) #:select (fold))
+	     ((srfi srfi-1) #:select (fold fold-right))
 	     ((oop goops)
 	      #:select (define-class define-generic define-method make))
 
@@ -35,34 +35,12 @@
   (let ((e expr))
     ((lambda (formal-a formal-b) body ...) (car e) (cdr e))))
 
-;;; It makes no sense that I have to do this.
-(define-generic length)
-
-;;; A streak represents a group of consecutive integers. Streaks are important
-;;; because they represent sequences in a card pile which will not be split
-;;; apart.
-(define-class <streak> ()
-  (min #:init-keyword #:min #:getter min)
-  (length #:init-keyword #:length #:getter length))
-
-(define* (Streak min #:optional (length 1))
-  (make <streak> #:min min #:length length))
-
-(define-method (write (streak <streak>) port)
-  (format port "(Streak ~S ~S)" (min streak) (length streak)))
-
 ;;; Split LST at index K into two segments and return them both as lists.
 ;;; Reverse the order of the head.
 (define* (reverse-split lst k #:optional (head '()))
   (if (positive? k)
       (reverse-split (cdr lst) (1- k) (cons (car lst) head))
       (values head lst)))
-
-;;; Append the elements of LST, in reverse, to OBJ.
-(define (reverse-append lst obj)
-  (if (null? lst)
-      obj
-      (reverse-append (cdr lst) (cons (car lst) obj))))
 
 (define* (iota-shuffle*! max random-state #:optional (i 0) (lst '()))
   (if (>= i max)
@@ -83,6 +61,22 @@
 ;;; Return #t iff the pile is shuffled.
 (define (pile-shuffled? p)
   (null? (cdr p)))
+
+;;; It makes no sense that I have to do this.
+(define-generic length)
+
+;;; A streak represents a group of consecutive integers. Streaks are important
+;;; because they represent sequences in a card pile which will not be split
+;;; apart.
+(define-class <streak> ()
+  (min #:init-keyword #:min #:getter min)
+  (length #:init-keyword #:length #:getter length))
+
+(define* (Streak min #:optional (length 1))
+  (make <streak> #:min min #:length length))
+
+(define-method (write (streak <streak>) port)
+  (format port "(Streak ~S ~S)" (min streak) (length streak)))
 
 (define (pile-size pile)
   (apply + (map length pile)))
@@ -105,6 +99,33 @@
   (if (or (null? hand) (not (eq? next (get-new-pile (car hand) median))))
       (values hand next transfer)
       (get-transfer (cdr hand) median next (cons (car hand) transfer))))
+
+;;; Append the elements of LST, in reverse, to OBJ.
+(define (reverse-append lst obj)
+  (if (null? lst)
+      obj
+      (reverse-append (cdr lst) (cons (car lst) obj))))
+
+(define (streak-cons* streaks reversed)
+  (if (null? reversed)
+      streaks
+      (let* ((s (car reversed))
+	     (lo (min s))
+	     (size (length s))
+	     (rest (cdr reversed)))
+	(if
+	 (or (null? streaks)
+	     (not
+	      (= (+ (min s) (length s))
+		 (min (car streaks)))))
+	 (streak-cons* (cons s streaks) rest)
+	 (streak-cons*
+	  (cons (Streak lo (+ size (length (car streaks)))) (cdr streaks))
+	  rest)))))
+
+;;; Add any number of streaks S, to a list of STREAKS.
+(define (streak-cons streaks . s)
+  (streak-cons* streaks (reverse s)))
 
 (define (reverse-append-streaks a b)
   (reverse-append (cdr a) (streak-cons b (car a))))
@@ -144,18 +165,14 @@
 		  (format #t "~A\n" (map pile-size piles))
 		  (shuffle (append (split hand) rest)))))))
 
-(define (append-streaks* reversed streaks)
-  (if (null? reversed)
-      streaks
-      (append-streaks* (cdr reversed)
-		       (apply streak-cons streaks (car reversed)))))
-
-;;; Append lists of streaks.
-(define (append-streaks . streaks)
-  (if (null? streaks)
-      '()
-      (let ((reversed (reverse streaks)))
-	(append-streaks* (cdr reversed) (car reversed)))))
+;;; Consolodate a list of numbers into streaks.
+(define (numbers->streaks lst)
+  (fold-right
+   (lambda (n streaks)
+     (if (or (null? streaks) (not (= (min (car streaks)) (1+ n))))
+	 (cons (Streak n) streaks)
+	 (cons (Streak n (1+ (length (car streaks)))) (cdr streaks))))
+   '() lst))
 
 ;;; Return a list of numbers.
 ;;; identicals: A list of numbers of identical or pre-shuffled cards.
@@ -166,35 +183,9 @@
    (fold
     (lambda (size previous)
       (let ((pool (cdr previous)))
-	(cons (append (sort (list-head pool size)) (car previous))
+	(cons (append (sort (list-head pool size) <) (car previous))
 	      (list-tail pool size))))
     (cons deck pool) identicals)))
-
-(define (streak-cons* streaks reversed)
-  (if (null? reversed)
-      streaks
-      (let* ((s (car reversed))
-	     (lo (min s))
-	     (size (length s))
-	     (rest (cdr reversed)))
-	(if
-	 (or (null? streaks)
-	     (not
-	      (= (+ (min s) (length s))
-		 (min (car streaks)))))
-	 (streak-cons* (cons s streaks) rest)
-	 (streak-cons*
-	  (cons (Streak lo (+ size (length (car streaks)))) (cdr streaks))
-	  rest)))))
-
-;;; Add any number of streaks S, to a list of STREAKS.
-(define (streak-cons streaks . s)
-  (streak-cons* streaks (reverse s)))
-
-;;; Consolodate a list of numbers into streaks. STREAKS is a list of streaks to
-;;; append to.
-(define* (list->streaks lst #:optional (streaks '()))
-  (apply streak-cons streaks (map Streak lst)))
 
 (let* ((options
 	(get-flags (command-line)
@@ -209,5 +200,6 @@
 			  (iota-shuffle size (option-ref options 'seed #f))
 			  unique)
 		       (shuffle
-			`(,(add-chunks identicals pool
-				       (list->streaks deck)))))))))
+			(list
+			 (numbers->streaks
+			  (add-chunks identicals pool deck)))))))))
