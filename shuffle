@@ -66,11 +66,11 @@
 (define* (iota-shuffle*! max random-state #:optional (i 0) (lst '()))
   (if (>= i max)
       lst
-      (let ((next (1+ i)))
-	(receive (head tail)
-		 (reverse-split lst (random next random-state))
-		 (iota-shuffle*! max random-state next
-				(reverse-append head (cons i tail)))))))
+      (let* ((next (1+ i))
+	     (k (random next random-state)))
+	(iota-shuffle*! max random-state next
+			(append (list-head lst k)
+				(cons i (list-tail lst k)))))))
 
 ;;; Return a list of all integers in [0, MAX) in a random order.
 (define (iota-shuffle max seed)
