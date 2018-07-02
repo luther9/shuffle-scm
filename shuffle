@@ -25,6 +25,7 @@
 (add-to-load-path ".")
 (use-modules ((ice-9 rdelim) #:select (read-line))
 	     ((ice-9 receive) #:select (receive))
+	     ((srfi srfi-1) #:select (fold))
 	     ((oop goops)
 	      #:select (define-class define-generic define-method make))
 
@@ -69,8 +70,8 @@
       (let* ((next (1+ i))
 	     (k (random next random-state)))
 	(iota-shuffle*! max random-state next
-			(append (list-head lst k)
-				(cons i (list-tail lst k)))))))
+			(append (list-head lst k) (list i)
+				(list-tail lst k))))))
 
 ;;; Return a list of all integers in [0, MAX) in a random order.
 (define (iota-shuffle max seed)
@@ -156,17 +157,18 @@
       (let ((reversed (reverse streaks)))
 	(append-streaks* (cdr reversed) (car reversed)))))
 
-;;; Return a list of streaks.
+;;; Return a list of numbers.
 ;;; identicals: A list of numbers of identical or pre-shuffled cards.
 ;;; pool: A list of numbers to draw from.
-;;; deck: A pre-existing list of streaks to append to.
-(define (get-chunks identicals pool deck)
-  (if (null? identicals)
-      deck
-      (receive (chunk pool*) (reverse-split pool (car identicals))
-	       (get-chunks (cdr identicals) pool*
-			   (append-streaks (list->streaks (sort chunk <))
-					   deck)))))
+;;; deck: A pre-existing list to append to.
+(define (add-chunks identicals pool deck)
+  (car
+   (fold
+    (lambda (size previous)
+      (let ((pool (cdr previous)))
+	(cons (append (sort (list-head pool size)) (car previous))
+	      (list-tail pool size))))
+    (cons deck pool) identicals)))
 
 (define (streak-cons* streaks reversed)
   (if (null? reversed)
@@ -207,5 +209,5 @@
 			  (iota-shuffle size (option-ref options 'seed #f))
 			  unique)
 		       (shuffle
-			`(,(get-chunks identicals pool
+			`(,(add-chunks identicals pool
 				       (list->streaks deck)))))))))
