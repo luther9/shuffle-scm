@@ -28,29 +28,16 @@
 	     ((srfi srfi-1)
 	      #:select (car+cdr find fold fold-right reduce-right))
 	     ((oop goops)
-	      #:select
-	      (define-class define-generic define-method is-a? make <applicable>
-	       <null> <pair> <procedure> <real>))
+	      #:select (define-class define-method make <list> <real>))
 
 	     ((flag) #:select (get-flags option-ref)))
 
 (define-syntax-rule (unpack-pair formal1 formal2 expr body ...)
   (receive (formal1 formal2) (car+cdr expr) body ...))
 
-;;; Apparently, these are invalid generics unless we declare them.
-(define-generic append)
-(define-generic car)
-(define-generic cdr)
-(define-generic find)
-(define-generic fold-right)
-(define-generic null?)
-
-(define-class <streak-list> ()
-  (data #:init-keyword #:data #:getter data))
-
-(define-method (shuffled? (s <streak-list>))
-  "Return #t if S has only one streak. Return #f if S has more."
-  (null? (cdr (data s))))
+(define (shuffled? streaks)
+  "Return #t if STREAKS has only one streak. Return #f if it has more."
+  (null? (cdr streaks)))
 
 ;;; A streak represents a group of consecutive integers. Streaks are important
 ;;; because they represent sequences in a card pile which will not be split
@@ -59,94 +46,60 @@
   (min #:init-keyword #:min #:getter min)
   (size #:init-keyword #:size #:init-value 1 #:getter size))
 
-(define-method (size (s <streak-list>))
-  "Return the sum of all lengths in S."
-  (apply + (map size (data s))))
+(define-method (size (streaks <list>))
+  "Return the sum of all lengths in STREAKS."
+  (apply + (map size streaks)))
 
-(define-method (min (pile <streak-list>))
-  "Return the lowest represented card in S."
-  (apply min (map min (data pile))))
-
-(define-method (null? (s <streak-list>))
-  "#t if S is empty, #f otherwise."
-  (null? (data s)))
+(define-method (min (pile <list>))
+  "Return the lowest represented card in PILE."
+  (apply min (map min pile)))
 
 ;;; #t means pile A. #f means pile B.
 (define (get-new-pile streak median)
   (let ((lo (min streak)))
     (< (- median lo) (- (+ lo (size streak)) median))))
 
-(define-method (car (s <streak-list>))
-  "Return first streak of S."
-  (car (data s)))
-
-(define-method (fold-right (proc <applicable>) init (lst <streak-list>))
-  "Like the standard fold-right, but LST is a streak list instead of a regular
-list."
-  (fold-right proc init (data lst)))
+;;; Return 3 values:
+;;; 1. The remaining hand after the transfer.
+;;; 2. A boolean indicating the new pile. #t means pile A.
+;;; 3. A list of streaks to append to the new pile.
+(define* (get-transfer hand median
+		       #:optional
+		       (next (get-new-pile (car hand) median)) (transfer '()))
+  (if (or (null? hand) (not (eq? next (get-new-pile (car hand) median))))
+      (values hand next (reverse transfer))
+      (get-transfer (cdr hand) median next (cons (car hand) transfer))))
 
 (define-method (end (s <streak>))
   "Return the end of the range represented by S."
   (+ (min s) (size s)))
 
-(define-method (top (s <streak-list>))
+(define-method (top streaks)
   "Return the min of the top streak of S. S must not be empty."
-  (min (car (data s))))
+  (min (car streaks)))
 
-(define-method (Streak (min <real>) (size <real>))
+(define-method (new-streak (min <real>) (size <real>))
   (make <streak> #:min min #:size size))
 
-(define null-streak-list (make <streak-list> #:data '()))
+(define-method (push (s <streak>) (streaks <list>))
+  "Return a new streak list with S added to the top."
+  (if (or (null? streaks) (not (= (end s) (top streaks))))
+      (cons s streaks)
+      (cons (new-streak (min s) (+ (size s) (size (car streaks))))
+	    (cdr streaks))))
 
-(define-method (StreakList (data <pair>))
-  ;; Cheat by only checking the first element. I hope all lists are homogeneous.
-  (let ((first (car data)))
-    (cond ((real? first) (append null-streak-list data))
-	  ((is-a? first <streak>) (make <streak-list> #:data data))
-	  (#t (error "data must be a list of either streaks or reals.")))))
-
-(define-method (Streak (min <real>))
+(define-method (new-streak (min <real>))
   (make <streak> #:min min))
 
-(define-method (push (s <streak>) (streaks <streak-list>))
-  "Return a new streak-list with S added to the top."
-  (let ((lst (data streaks)))
-    (if (or (null? lst) (not (= (end s) (top streaks))))
-	(StreakList (cons s lst))
-	(StreakList
-	 (cons (Streak (min s) (+ (size s) (size (car lst)))) (cdr lst))))))
+(define-method (push (n <real>) (streaks <list>))
+  "Return a new streak list with N added to the top."
+  (push (new-streak n) streaks))
 
-(define-method (*append lst (streaks <streak-list>))
-  "Append a streak-list or a list of numbers to STREAKS."
-  (fold-right push streaks lst))
-
-(define-method (append (streaks <streak-list>) . lst)
-  "Append streak-lists or lists of numbers to STREAKS. This is different from
-the standard append in that the tail object is given as the first argument, not
-the last."
-  (fold-right *append streaks lst))
-
-(define-method (push (n <real>) (streaks <streak-list>))
-  "Return a new streak-list with N added to the top."
-  (push (Streak n) streaks))
-
-(define-method (cdr (s <streak-list>))
-  "Return a copy of S with the top streak removed."
-  (StreakList (cdr (data s))))
-
-(define-method (StreakList (data <null>))
-  null-streak-list)
-
-;;; Return 3 values:
-;;; 1. The remaining hand after the transfer.
-;;; 2. A boolean indicating the new pile. #t means pile A.
-;;; 3. A list of streaks to append to the new pile, in reverse order.
-(define* (get-transfer hand median
-		       #:optional (next (get-new-pile (car hand) median))
-		       (transfer '()))
-  (if (or (null? hand) (not (eq? next (get-new-pile (car hand) median))))
-      (values hand next (StreakList (reverse transfer)))
-      (get-transfer (cdr hand) median next (cons (car hand) transfer))))
+(define (append-streaks . lists)
+  "Works like append, but all arguments must be lists of either streaks or
+numbers. Normalize the result."
+  (fold-right (lambda (streaks previous) (fold-right push previous streaks))
+	      '() lists))
 
 ;;; Split a pile into two piles.
 (define* (split hand
@@ -158,8 +111,8 @@ the last."
       (receive (hand* next-pile transfer) (get-transfer hand median)
 	(let ((transfer-size (size transfer))
 	      (next-letter (if next-pile "A" "B"))
-	      (pile-a* (if next-pile (append transfer pile-a) pile-a))
-	      (pile-b* (if next-pile pile-b (append transfer pile-b))))
+	      (pile-a* (if next-pile (append-streaks transfer pile-a) pile-a))
+	      (pile-b* (if next-pile pile-b (append-streaks transfer pile-b))))
 	  (format #t "~A to ~A" transfer-size next-letter)
 	  (read-line)
 	  (split hand* median pile-a* pile-b*)))))
@@ -176,10 +129,6 @@ the last."
 	    (format #t "~A\n" (map size piles))
 	    (shuffle (append (split hand) rest)))))))
 
-(define-method (find (proc <procedure>) (s <streak-list>))
-  "Apply the core find to the data of streak-list S."
-  (find proc (data s)))
-
 (define (join-joinable-streak identicals main-streaks)
   "Return the (possibly modified) arguments as a pair. If a streak in IDENTICALS
 can be joined with the top streak of MAIN-STREAKS, do so and remove it from
@@ -193,12 +142,13 @@ IDENTICALS."
 (define (n->streaks n pool)
   "Take N elements from POOL and make them into a StreakList. Return the
 StreakList and the remaining pool."
-  (cons (StreakList (sort (list-head pool n) <)) (list-tail pool n)))
+  (cons (append-streaks (sort (list-head pool n) <)) (list-tail pool n)))
 
 (define (groups->streaks groups pool)
-  "Map GROUPS into a list of streak lists, taking the actual numbers from POOL."
+  "Map GROUPS, in reverse order, into a list of streak lists, taking the actual
+numbers from POOL."
   (cdr
-   (fold-right
+   (fold
     (lambda (n pool+lists)
       (unpack-pair streaks pool (n->streaks n (car pool+lists))
 	(cons* pool streaks (cdr pool+lists))))
@@ -213,7 +163,7 @@ shuffling easier."
    (lambda (identicals main-streaks)
      (unpack-pair identicals main-streaks
 		  (join-joinable-streak identicals main-streaks)
-       (append main-streaks identicals)))
+       (append-streaks identicals main-streaks)))
    #f (groups->streaks groups pool)))
 
 (define* (*iota-shuffle! max random-state #:optional (i 0) (lst '()))
