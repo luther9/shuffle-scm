@@ -26,11 +26,9 @@
 	      #:select
 	      (break
 	       car+cdr
-	       find
 	       fold
 	       fold-right
 	       partition
-	       reduce-right
 	       split-at))
 	     ((oop goops)
 	      #:select (define-class define-method make <list> <real>))
