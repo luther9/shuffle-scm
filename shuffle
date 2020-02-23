@@ -20,13 +20,18 @@
 ;;; You should have received a copy of the GNU General Public License
 ;;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-;; 'add-to-load-path' doesn't belong in this file when it's installed, but it's
-;; the only way to test the flag module.
-(add-to-load-path ".")
-(use-modules ((ice-9 rdelim) #:select (read-line))
+(use-modules ((ice-9 textual-ports) #:select (get-line))
 	     ((ice-9 receive) #:select (receive))
 	     ((srfi srfi-1)
-	      #:select (car+cdr find fold fold-right reduce-right))
+	      #:select
+	      (break
+	       car+cdr
+	       find
+	       fold
+	       fold-right
+	       partition
+	       reduce-right
+	       split-at))
 	     ((oop goops)
 	      #:select (define-class define-method make <list> <real>))
 
@@ -36,7 +41,9 @@
   (receive (formal1 formal2) (car+cdr expr) body ...))
 
 (define (shuffled? streaks)
-  "Return #t if STREAKS has only one streak. Return #f if it has more."
+  "Return #t if STREAKS has only one streak. Return #f if it has more. Note that
+  if a pile only has one streak set, that streak set is guaranteed to have only
+  one streak."
   (null? (cdr streaks)))
 
 ;;; A streak represents a group of consecutive integers. Streaks are important
@@ -46,29 +53,61 @@
   (min #:init-keyword #:min #:getter min)
   (size #:init-keyword #:size #:init-value 1 #:getter size))
 
-(define-method (size (streaks <list>))
-  "Return the sum of all lengths in STREAKS."
-  (apply + (map size streaks)))
+(define (pile->streaks pile)
+  "A list of all streaks in PILE."
+  (apply append pile))
+
+(define-method (size (pile <list>))
+  "Return the sum of the lengths of all streaks in PILE."
+  (apply + (map size (pile->streaks pile))))
 
 (define-method (min (pile <list>))
   "Return the lowest represented card in PILE."
-  (apply min (map min pile)))
+  (apply min (map min (pile->streaks pile))))
 
 ;;; #t means pile A. #f means pile B.
 (define (get-new-pile streak median)
   (let ((lo (min streak)))
     (< (- median lo) (- (+ lo (size streak)) median))))
 
-;;; Return 3 values:
-;;; 1. The remaining hand after the transfer.
-;;; 2. A boolean indicating the new pile. #t means pile A.
-;;; 3. A list of streaks to append to the new pile.
-(define* (get-transfer hand median
-		       #:optional
-		       (next (get-new-pile (car hand) median)) (transfer '()))
-  (if (or (null? hand) (not (eq? next (get-new-pile (car hand) median))))
-      (values hand next (reverse transfer))
-      (get-transfer (cdr hand) median next (cons (car hand) transfer))))
+(define* (1st-target hand median #:optional (mixed #f))
+	 "Determine the first target when splitting this pile."
+	 (if (null? hand)
+	     #f
+	     (let 
+	       ((targets (map (lambda (s) (get-new-pile s median)) (car hand))))
+	       (cond ((not (memq #t targets)) mixed)
+		     ((not (memq #f targets)) (not mixed))
+		     (#f (1st-target (cdr hand) median (not mixed)))))))
+
+(define (partial f . args)
+  "Return a function that calls f, passing args. That function will take any
+  additional arguments required by f."
+  (lambda more-args
+    (apply f (append args more-args))))
+
+(define (target-match median target streak)
+  (eq? target (get-new-pile streak median)))
+
+(define* (get-transfer hand median #:optional (target (1st-target hand median)))
+  "Return 3 values:
+1. The remaining hand after the transfer.
+2. A boolean indicating the new pile. #t means pile A.
+3. A streak set list to append to the new pile."
+  (if (null? hand)
+      (values '() #f '())
+      (receive (transfer-half hand-half)
+	       (partition (partial target-match median target) (car hand))
+	       (let ((next-hand (cdr hand)))
+		 (if (null? hand-half)
+		     (receive (hand* -- transfer)
+			      (get-transfer next-hand median target)
+			      (values hand*
+				      target
+				      (cons transfer-half transfer)))
+		     (values (cons hand-half next-hand)
+			     target
+			     (optional-list transfer-half)))))))
 
 (define-method (end (s <streak>))
   "Return the end of the range represented by S."
@@ -95,27 +134,21 @@
   "Return a new streak list with N added to the top."
   (push (new-streak n) streaks))
 
-(define (append-streaks . lists)
-  "Works like append, but all arguments must be lists of either streaks or
-numbers. Normalize the result."
-  (fold-right (lambda (streaks previous) (fold-right push previous streaks))
-	      '() lists))
-
-;;; Split a pile into two piles.
 (define* (split hand
 		#:optional
 		(median (+ (min hand) (/ (size hand) 2)))
 		(pile-a '()) (pile-b '()))
+	 "Split a pile into two piles. If the user hits Ctrl-D, return #f."
   (if (null? hand)
       (list pile-a pile-b)
       (receive (hand* next-pile transfer) (get-transfer hand median)
-	(let ((transfer-size (size transfer))
-	      (next-letter (if next-pile "A" "B"))
-	      (pile-a* (if next-pile (append-streaks transfer pile-a) pile-a))
-	      (pile-b* (if next-pile pile-b (append-streaks transfer pile-b))))
-	  (format #t "~A to ~A" transfer-size next-letter)
-	  (read-line)
-	  (split hand* median pile-a* pile-b*)))))
+	  (format #t "~A to ~A" (size transfer) (if next-pile "A" "B"))
+	  (if (eof-object? (get-line (current-input-port)))
+	      #f
+	      (split hand*
+		     median
+		     (if next-pile (combine transfer pile-a) pile-a)
+		     (if next-pile pile-b (combine transfer pile-b)))))))
 
 ;;; Shuffle the deck. Argument is a list containing the deck to shuffle.
 (define (shuffle piles)
@@ -123,48 +156,103 @@ numbers. Normalize the result."
     (unpack-pair hand rest piles
       (if (shuffled? hand)
 	  (begin
-	    (format #t "Pile of ~A cards is already shuffled.\n" (size hand))
+	    (format #t "Pile of ~A cards is shuffled.\n" (size hand))
 	    (shuffle rest))
 	  (begin
 	    (format #t "~A\n" (map size piles))
-	    (shuffle (append (split hand) rest)))))))
+	    (let ((new-piles (split hand)))
+	      (when new-piles (shuffle (append new-piles rest)))))))))
 
-(define (join-joinable-streak identicals main-streaks)
-  "Return the (possibly modified) arguments as a pair. If a streak in IDENTICALS
-can be joined with the top streak of MAIN-STREAKS, do so and remove it from
-IDENTICALS."
-  (let ((joinable
-	 (find (lambda (s) (= (end s) (top main-streaks))) identicals)))
-    (if joinable
-	(cons (delq joinable identicals) (cons joinable main-streaks))
-	(cons identicals main-streaks))))
+(define (add-card-to-set card set)
+  "Add CARD to a streak set. CARD must be lower than all other cards in the
+set."
+  (let ((single (new-streak card)))
+    (if (null? set)
+	(list single)
+	(let ((first (car set)))
+	  (if (= card (1- (min first)))
+	      (cons (new-streak card (1+ (size first))) (cdr set))
+	      (cons single set))))))
 
-(define (n->streaks n pool)
-  "Take N elements from POOL and make them into a StreakList. Return the
-StreakList and the remaining pool."
-  (cons (append-streaks (sort (list-head pool n) <)) (list-tail pool n)))
+(define (make-streak-set cards)
+  "Make a streak set from a list of numbers representing identical cards. Put it
+  into a list to represent a pile of cards."
+  (list (fold add-card-to-set '() (sort cards >))))
+
+(define (split-groups groups pool)
+  "Break POOL into sublists whose lengths are given by GROUPS."
+  (cdr
+    (fold
+      (lambda (n pool+lists)
+	(receive (group pool) (split-at (car pool+lists) n)
+		 (cons* pool group (cdr pool+lists))))
+      (list pool)
+      groups)))
 
 (define (groups->streaks groups pool)
-  "Map GROUPS, in reverse order, into a list of streak lists, taking the actual
-numbers from POOL."
-  (cdr
-   (fold
-    (lambda (n pool+lists)
-      (unpack-pair streaks pool (n->streaks n (car pool+lists))
-	(cons* pool streaks (cdr pool+lists))))
-    (list pool) groups)))
+  "Map a list of numbers of identicals to streak sets."
+  (map make-streak-set (split-groups groups pool)))
+
+(define (find-match lst item match?)
+  "Find an element of LST that matches ITEM, according to the MATCH? function.
+  Return LST with the first matching item moved to the front. If there is no
+  match, return #f."
+  (receive (head tail) (break (lambda (x) (match? x item)) lst)
+	   (if (null? tail)
+	       #f
+	       (cons (car tail) (append head (cdr tail))))))
+
+(define* (extract-match a b match? #:optional (b-head '()))
+  "Find an element from list A that matches an element from list B, according to
+  the MATCH? function. If no match is found, return #f. Otherwise, return a
+  4-element list which includes A and B without the matching elements, and the
+  two matching elements."
+  (if (null? b)
+      #f
+      (let* ((b-elem (car b))
+	     (extraction (find-match a b-elem match?))
+	     (b-tail (cdr b)))
+	(if extraction
+	    (list (cdr extraction)
+		  (append b-head b-tail)
+		  (car extraction)
+		  b-elem)
+	    (extract-match a b-tail match? (cons b-elem b-head))))))
+
+(define (optional-list lst)
+  "Return a list. If LST is not null, put it in the list."
+  (if (null? lst) '() (list lst)))
+
+(define (combine-identicals a b)
+  "Combine two homogenous streak sets into one pile. If possible, rearrange the
+  cards to create a new streak between them."
+  (let ((extraction
+	  (extract-match a b (lambda (x y) (= (end x) (min y))))))
+    (if extraction
+	(append (optional-list (car extraction))
+		(cons
+		  (list
+		    (let ((streak-a (caddr extraction)))
+		      (new-streak (min streak-a)
+				  (+ (size streak-a)
+				     (size (cadddr extraction))))))
+		  (optional-list (cadr extraction))))
+	(list a b))))
+
+(define (combine a b)
+  "Combine two card piles into a single streak list. A must not be empty."
+  (if (null? b)
+      a
+      (receive (a-main a-end) (split-at a (1- (length a)))
+	       (append a-main
+		       (combine-identicals (car a-end) (car b))
+		       (cdr b)))))
 
 (define (deck groups pool)
-  "Return a streak-list. POOL is a list of numbers that will go into the
-streak-list in mostly the same order. GROUPS is a list of numbers that represent
-partitions of identical cards which will be re-ordered to make the physical
-shuffling easier."
-  (reduce-right
-   (lambda (identicals main-streaks)
-     (unpack-pair identicals main-streaks
-		  (join-joinable-streak identicals main-streaks)
-       (append-streaks identicals main-streaks)))
-   #f (groups->streaks groups pool)))
+  "Return a list of sets of streaks. POOL is a list of numbers that will go into
+the streak set list. GROUPS is a list of numbers that represent partitions of
+identical cards which will be re-ordered to make the physical shuffling easier."
+  (fold combine '() (groups->streaks groups pool)))
 
 (define* (*iota-shuffle! max random-state #:optional (i 0) (lst '()))
   (if (>= i max)
@@ -182,9 +270,7 @@ shuffling easier."
 		      (seed->random-state seed)
 		      (random-state-from-platform))))
 
-(let* ((options
-	(get-flags (command-line)
-		   `((seed (value #t) (predicate ,string->number)))))
+(let* ((options (get-flags (command-line) '((seed (value #t)))))
        (args (map string->number (option-ref options '() #f))))
   (if (or (null? args) (memq #f args))
       (format #t "shuffle requires at least 1 integer argument\n")
